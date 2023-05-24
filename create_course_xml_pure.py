@@ -1,8 +1,7 @@
 #TO DO
 #Opleiding toevoegen
 #CDATA wegschrijven vanuit script (nu met zoek/vervang < en > achteraf in notepad++)
-#Lange naam als titel ipv vak Oms
-#Samenvoegen vakken gegeven in meerdere periodes
+#Selectie Engelse veldomschrijving indien in 2 talen (ipv eerste)
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os, sys
@@ -130,39 +129,42 @@ df_inhoud_velden = pd.read_excel(os.path.join(file_dir,courses_file), sheet_name
 #log
 df_log = pd.DataFrame(columns=['course_code', 'course_id', 'credits', 'record added','reason rejected', 'URL-status', 'has_developer', 'has_lecturer', ' has_degree', 'title', 'categorie'])
 
-#class_velden = {"Lange naam": "", "Opmerkingen" : "additional_information", "Doel" : "course_objective", "Inhoud" : "course_content", "Werkwijze" : "additional_information_teaching_methods", "Literatuur" : "literature", "Toetsing" : "method_of_assessment", "Doelgroep" : "additional_information_target_audience", "Vereiste voorkennis" : "entry_requirements", "Aanbevolen voorkennis" : "recommended_background_knowledge", "Intekenprocedure" : "custom_course_registration", "Uitleg in Canvas" : "explanation_canvas", "Globaal doel KPI" : ""}
-class_velden = {"Lange naam": "", "Opmerkingen" : "08", "Doel" : "01", "Inhoud" : "02", "Werkwijze" : "03", "Literatuur" : "05", "Toetsing" : "04", "Doelgroep" : "06", "Vereiste voorkennis" : "09", "Aanbevolen voorkennis" : "10", "Intekenprocedure" : "07", "Uitleg in Canvas" : "11", "Globaal doel KPI" : ""}
+class_velden = {"Lange naam": "t", "Opmerkingen" : "08", "Doel" : "01", "Inhoud" : "02", "Werkwijze" : "03", "Literatuur" : "05", "Toetsing" : "04", "Doelgroep" : "06", "Vereiste voorkennis" : "09", "Aanbevolen voorkennis" : "10", "Intekenprocedure" : "07", "Uitleg in Canvas" : "11", "Globaal doel KPI" : ""}
 class_taal = {"EN" : "english", "NL" : "dutch", "Tweetalig": "bilingual"}
 
 #xml envelope
 xml_courses = Element('v1:courses', {'xmlns:v1':"v1.course.pure.atira.dk", "xmlns:v3":"v3.commons.pure.atira.dk"})
 
+courses_processed = []
+
 #process vakken
 for index_no in df_vakken.index[0:]:
 
+    persons_assoc = []
     field_ct = developer_ct = lecturer_ct = 0
     reason_rejection = ""
     record_added = has_developer = has_lecturer = has_degree = "true"
-        
+            
     vak_code = df_vakken['Unieke vakcode'][index_no]
+
+    #skip rows with course ID that was already processed - semesters will be accmulated in occurances
+    if vak_code in courses_processed:
+        continue
+    courses_processed.append(vak_code)
+        
     vak_id = df_vakken['Vak ID'][index_no]
     vak_oms_en = df_vakken['Vak oms (EN)'][index_no]
     vak_oms_nl = df_vakken['Vak oms (NL)'][index_no]
     acad_jaar = df_vakken['Acad. Jaar'][index_no]
-    acad_periode = df_vakken['Acad. Per'][index_no]
+    #acad_periode = df_vakken['Acad. Per'][index_no]
+    acad_periodes = df_vakken.loc[df_vakken['Unieke vakcode'] == vak_code]
     graad = df_vakken['Moeilijkheidsgraad'][index_no]
     categorie = df_vakken['Categorie'][index_no]
     taal = df_vakken['Taal'][index_no]
     credit = math.ceil(df_vakken['Opt. Credits'][index_no])
     start_vak = df_vakken['Startdatum vak'][index_no]
-
-    print (index_no, vak_code)
     
-    #no degree seems best predictor of external / irrelevant course
-    if pd.isna(graad) == True:    
-        record_added = "false"
-        has_degree = "false"
-        #continue
+    print (index_no, vak_code)
     
     #set title
     if pd.isna(vak_oms_en) == False:
@@ -171,7 +173,7 @@ for index_no in df_vakken.index[0:]:
         course_title = vak_oms_nl
 
     #check URL in study guide
-    url_study_guide = "https://studiegids.vu.nl/NL/vakken/2022-2023/"+vak_id
+    url_study_guide = "https://studiegids.vu.nl/en/courses/2022-2023/"+vak_id
     check_guide = requests.get(url_study_guide)
     if check_guide.status_code == 404:
         continue
@@ -187,7 +189,7 @@ for index_no in df_vakken.index[0:]:
     """
     
     #build xml course body
-    course_record = SubElement(xml_courses,'v1:course', id=f"{vak_code}_{acad_periode}", managedInPure="false", type="course")
+    course_record = SubElement(xml_courses,'v1:course', id=f"{vak_code}", managedInPure="false", type="course")
     title = SubElement(course_record, 'v1:title')
     title.text = str(course_title)
     addit_descr = SubElement(course_record, 'v1:additionalDescriptions')
@@ -201,12 +203,7 @@ for index_no in df_vakken.index[0:]:
     developers = SubElement(course_record, 'v1:developers')
     managing_org = SubElement(course_record, 'v1:managingOrganisation', lookupId='xxxxxxxx')
     occurrences = SubElement(course_record, 'v1:occurrences')
-    occurrence = SubElement(occurrences, 'v1:occurrence', id = f"{vak_code}_{acad_jaar}_{acad_periode}")
-    occurrence_semester = SubElement(occurrence, 'v1:semester')
-    occurrence_semester.text = str(acad_periode)
-    occurrence_year = SubElement(occurrence, 'v1:year')
-    occurrence_year.text = str(acad_jaar)
-    lecturers = SubElement(occurrence, 'v1:lecturers')
+    
     if pd.isna(taal) == False:
         keywords = SubElement(course_record, 'v1:keywords')
         keyw_language = SubElement(keywords, 'v1:keyword', logicalName="/dk/atira/pure/keywords/language_course", key=class_taal[taal])
@@ -221,17 +218,20 @@ for index_no in df_vakken.index[0:]:
         
     #get persons by vak_code
     personen = df_personen.loc[df_personen['Unieke vakcode'] == vak_code]
-    lecturer_list = []
-
+    
+    #loop through person records in df and match with Pure persons and affiliations
     for row_label, row in personen.iterrows():
-        
+
+        person_org_list = []
+
+        person_role = row['Type relatie']
         get_person_id = row['VUNET-ID']
+
         if pd.isna(get_person_id) == True:
             continue
         person_id = get_person_id.lower()
         if person_id not in vunetid_list:
             continue
-        person_org_list = []
         
         #loop through Pure affiliatons and get current
         for affil in int_person_dict_vunet[person_id]['personaffiliations']:
@@ -240,6 +240,7 @@ for index_no in df_vakken.index[0:]:
             else:
                 continue
             
+        #if no current affiliations found    
         if person_org_list == []:
             #loop through Pure affiliatons and get most recent
             affil_last_dt = datetime.datetime(1900, 1, 1)
@@ -249,39 +250,58 @@ for index_no in df_vakken.index[0:]:
                     person_org_list = [affil['af_org_id']]
                 else:
                     continue
-        
-        person_role = row['Type relatie']
-        if person_role == 'Docent' or 'Examinator':
-            lecturer_ct += 1
-            if person_id in lecturer_list:
-                continue
-            lecturer_list.append(person_id)
-            lecturer = SubElement(lecturers, 'v1:lecturer', id= f"{vak_code}_{person_id}", role = 'teacher')
-            lect_person = SubElement(lecturer, 'v1:person', lookupId = str(person_id))
-            lect_orgs = SubElement(lecturer, 'v1:organisations')
-            for org in person_org_list:
-                lect_org = SubElement(lect_orgs, 'v1:organisation', lookupId = org)
-        if person_role == 'Is verantwoordelijk voor':
-            developer = SubElement(developers, 'v1:developer', id=f"{vak_code}_{person_id}")
-            dev_person = SubElement(developer, 'v1:person', lookupId = str(person_id))
+
+        #add person dict to list of persons associated
+        persons_assoc.append({'id':person_id, 'role':person_role, 'affil':person_org_list})
+
+    #add developer contribution to xml
+    for person in persons_assoc:
+        if person['role'] == 'Is verantwoordelijk voor':
+            developer = SubElement(developers, 'v1:developer', id=f"{vak_code}_{person['id']}")
+            dev_person = SubElement(developer, 'v1:person', lookupId = str(person['id']))
             if developer_ct == 0:
                 dev_orgs = SubElement(course_record, 'v1:organisations')    
             else:
                 pass
-            #dev_orgs = SubElement(developer, 'v1:organisations')
             
-            for org in person_org_list:
-                #dev_org = SubElement(dev_orgs, 'v1:organisation', lookupId = org)
+            for org in person['affil']:
                 dev_org = SubElement(dev_orgs, 'v1:organisation', lookupId = org)
 
             developer_ct += 1
+        
+    #add occurances to xml
+    for row_label, row in acad_periodes.iterrows():
+        lecturer_list = []
+        acad_periode = row['Acad. Per']
+    
+        occurrence = SubElement(occurrences, 'v1:occurrence', id = f"{vak_code}_{acad_jaar}_{acad_periode}")
+        occurrence_semester = SubElement(occurrence, 'v1:semester')
+        occurrence_semester.text = str(acad_periode)
+        occurrence_year = SubElement(occurrence, 'v1:year')
+        occurrence_year.text = str(acad_jaar)
+        lecturers = SubElement(occurrence, 'v1:lecturers')
 
-    #occurance requires separate contributing organisation - just take last one
-    occur_orgs = SubElement(occurrence, 'v1:organisations')
-    if org == None:
-        occur_org = SubElement(occur_orgs, 'v1:organisation', lookupId = "xxxxxxxx")
-    else:
-        occur_org = SubElement(occur_orgs, 'v1:organisation', lookupId = org)
+        #find lecturers in person list
+        for person in persons_assoc:
+            if person['role'] == 'Docent' or 'Examinator':
+                if person['id'] in lecturer_list:
+                    continue
+                lecturer_list.append(person['id'])
+                lecturer = SubElement(lecturers, 'v1:lecturer', id= f"{vak_code}_{acad_periode}_{person['id']}", role = 'teacher')
+                lect_person = SubElement(lecturer, 'v1:person', lookupId = str(person['id']))
+                lect_orgs = SubElement(lecturer, 'v1:organisations')
+                for org in person['affil']:
+                    lect_org = SubElement(lect_orgs, 'v1:organisation', lookupId = org)
+
+                lecturer_ct += 1
+    
+        #occurance requires separate contributing organisation - just take last one
+        occur_orgs = SubElement(occurrence, 'v1:organisations')
+        if persons_assoc != []:
+            occur_org = SubElement(occur_orgs, 'v1:organisation', lookupId = persons_assoc[0]['affil'][0])
+        else:
+            occur_org = SubElement(occur_orgs, 'v1:organisation', lookupId = "xxxxxxxx")
+        
 
     if developer_ct == 0:
         course_record.remove(developers)
@@ -292,29 +312,6 @@ for index_no in df_vakken.index[0:]:
     #get fields by vak_code
     velden = df_velden.loc[df_velden['Unieke vakcode'] == vak_code]
 
-    """
-    #merge text into 1 field: description
-    description = ''
-    for row_label, row in velden.iterrows():
-        
-        #print (row['Unieke vakcode'], row['Subtype'], row['Taal'], row['Referentie'])
-        veld_referentie = row['Referentie']
-
-        #get field content
-        velden_inhoud = df_inhoud_velden.loc[df_inhoud_velden['Referentie'] == veld_referentie]
-        text = ""
-        if row['Subtype'] == 'Lange naam': continue
-        else:
-            for row_label_inh, row_inh in velden_inhoud.iterrows():
-                text = f"{text}{row_inh['Regel ']} "
-                #print (row_inh['Referentie'], row_inh['Volgnummer'], row_inh['Regel '])
-        description = description + row['Subtype'] + '\r\n' + text + '\r\n'
-        #print (row['Subtype'])
-
-    descript = SubElement(course_record, 'v1:description')
-    descript.text = description
-    print(description)
-    """
     #fields may be in both EN and NL - in that case EN is preferred
     veld_types_processed = []
     
@@ -349,16 +346,20 @@ for index_no in df_vakken.index[0:]:
                 veld_text = f"{veld_text}{str(row_inh['Regel_Concat'])} "
                 #print (row_inh['Referentie'], row_inh['Volgnummer'], row_inh['Regel '])
 
-            descr_field = SubElement (addit_descr, 'v1:description', type=veld_type)
-            #remove excess spaces
-            descr_field_clean = " ".join(veld_text.split())
-            descr_field.text = f"<![CDATA[<html><head><meta http-equiv='content-type' content='text/html; charset=windows-1252'></head><body>{descr_field_clean}</body></html>]]>"
-            field_ct += 1
-        #print (row['Subtype'])
-
+            if veld_type == 't':
+                #overwrite course title with long name
+                title.text = veld_text.strip()
+            else:
+                #add decriptive as field to xml
+                descr_field = SubElement (addit_descr, 'v1:description', type=veld_type)
+                #remove excess spaces
+                descr_field_clean = " ".join(veld_text.split())
+                descr_field.text = f"<![CDATA[<html><head><meta http-equiv='content-type' content='text/html; charset=windows-1252'></head><body>{descr_field_clean}</body></html>]]>"
+                field_ct += 1
+        
     if check_guide.status_code == 200:
         descr_field = SubElement (addit_descr, 'v1:description', type='00')
-        descr_field.text = f"<![CDATA[<html><head><meta http-equiv='content-type' content='text/html; charset=windows-1252'></head><body><b><a href='{url_study_guide}'>{url_study_guide}</a></b></body></html>]]>"
+        descr_field.text = f"<![CDATA[<html><head><meta http-equiv='content-type' content='text/html; charset=windows-1252'></head><body><a href='{url_study_guide}' target='_blank'>{url_study_guide}</a></body></html>]]>"
         field_ct += 1
     else:
         pass
